@@ -62,7 +62,8 @@ else
 fi
 
 function make_image () {
-    if [ $(docker images | tail -n +2 | awk '{print $1}' | /bin/grep uproxy/$1) == "uproxy/$1" ]
+    local CANDIDATES=$(docker images | tail -n +2 | awk '{print $1}' | /bin/grep uproxy/$1)
+    if [ "$CANDIDATES" == "uproxy/$1" ]
     then
         echo "Reusing existing image uproxy/$1"
     else
