@@ -22,21 +22,18 @@ flood_ip = subprocess.check_output(['./flood.sh', str(FLOOD_SIZE_MB) + 'M',
 print('** using flood server at ' + str(flood_ip))
 
 browser_spec = 'chrome-stable'
-# See churn pipe source for the full list.
-transformers = [
-  'none',
-  'caesar',
-  'fragmentationShaper',
-  'encryptionShaper',
-  'decompressionShaper',
-  'sequenceShaper',
-  'protean'
-]
+tests = {
+  'none': ('none', ''),
+  'caesar': ('caesar', ''),
+  'max. entropy': ('protean', '{ \"encryption\": {\"key\": \"0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0\"}}'),
+  'bt': ('header', '{ \"addHeader\": {\"header\": \"41.2\"}, \"removeHeader\": {\"header\": \"41.2\"}}}')
+  'both': ('protean', '{ \"encryption\": {\"key\": \"0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0\"}, \"headerInjection\": { \"addHeader\": {\"header\": \"41.2\"}, \"removeHeader\": {\"header\": \"41.2\"}}}'),
+}
 
 # Run the benchmarks.
 throughput = {}
-for transformer in transformers:
-  print('** ' + transformer)
+for test in tests.keys():
+  print('** ' + test)
 
   result = 0
   try:
@@ -47,7 +44,10 @@ for transformer in transformers:
         universal_newlines=True,
         stdin=subprocess.PIPE)
 
-    run_pair.stdin.write('transform with ' + transformer + '\n')
+    config = tests[test]
+    run_pair.stdin.write('transform with ' + config[0] + '\n')
+    if config[1]:
+      run_pair.stdin.write('transform config ' + config[1] + '\n')
     run_pair.stdin.close()
     run_pair.wait(30)
 
@@ -63,11 +63,11 @@ for transformer in transformers:
     elapsed = round(end - start, 2)
     result = int((FLOOD_SIZE_MB / elapsed) * 1000)
 
-    print('** throughput for ' + transformer + ': ' + str(result) + 'KB/sec')
+    print('** throughput for ' + test + ': ' + str(result) + 'KB/sec')
   except Exception as e:
-    print('** failed to test ' + transformer + ': ' + str(e))
+    print('** failed to test ' + test + ': ' + str(e))
 
-  throughput[transformer] = result
+  throughput[test] = result
 
 # Raw summary.
 print('** raw numbers: ' + str(throughput))
@@ -77,12 +77,12 @@ print('** raw numbers: ' + str(throughput))
 #   throughput,500,300,100
 stringio = io.StringIO()
 writer = csv.writer(stringio)
-headers = ['transformer']
-headers.extend(transformers)
+headers = ['test']
+headers.extend(tests)
 writer.writerow(headers)
 figures = ['throughput']
-for transformer in transformers:
-  figures.append(throughput[transformer])
+for test in tests:
+  figures.append(throughput[test])
 writer.writerow(figures)
 print('** CSV')
 print(stringio.getvalue())
