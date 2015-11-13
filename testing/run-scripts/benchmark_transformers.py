@@ -8,8 +8,11 @@ import sys
 import time
 import urllib.parse
 
-FLOOD_SIZE_MB = 64
+FLOOD_SIZE_MB = 32
 FLOOD_MAX_SPEED_MB = 5
+
+# https://github.com/uProxy/uproxy-docker/pull/26
+LATENCY_MS = 150
 
 parser = argparse.ArgumentParser(
     description='Compare transformer throughput.')
@@ -21,13 +24,14 @@ flood_ip = subprocess.check_output(['./flood.sh', str(FLOOD_SIZE_MB) + 'M',
     str(FLOOD_MAX_SPEED_MB) + 'M'], universal_newlines=True).strip()
 print('** using flood server at ' + str(flood_ip))
 
-browser_spec = 'chrome-stable'
+browser_spec = 'chrome-beta' # 47, with latency fix
 tests = {
-  'none': ('none', ''),
-  'caesar': ('caesar', ''),
-  'max. entropy': ('protean', '{ \"encryption\": {\"key\": \"0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0\"}}'),
-  'bt': ('header', '{ \"addHeader\": {\"header\": \"41.2\"}, \"removeHeader\": {\"header\": \"41.2\"}}}')
-  'both': ('protean', '{ \"encryption\": {\"key\": \"0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0\"}, \"headerInjection\": { \"addHeader\": {\"header\": \"41.2\"}, \"removeHeader\": {\"header\": \"41.2\"}}}'),
+  'off': ['bridge with preObfuscation'],
+  'passthrough': ['transform with none'],
+  'caesar': ['transform with caesar'],
+  'entropy': ['transform with encryptionShaper', '{\"key\": \"0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0\"}'],
+  'bt': ['transform with header', '{ \"addHeader\": {\"header\": \"41.2\"}, \"removeHeader\": {\"header\": \"41.2\"}}}'],
+  'both': ['transform with protean', '{ \"encryption\": {\"key\": \"0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0\"}, \"headerInjection\": { \"addHeader\": {\"header\": \"41.2\"}, \"removeHeader\": {\"header\": \"41.2\"}}}']
 }
 
 # Run the benchmarks.
@@ -40,14 +44,14 @@ for test in tests.keys():
     # Start the relevant config.
     run_pair = subprocess.Popen(['./run_pair.sh',
         '-p', args.clone_path,
+        '-l', str(LATENCY_MS),
         browser_spec, browser_spec],
         universal_newlines=True,
         stdin=subprocess.PIPE)
 
-    config = tests[test]
-    run_pair.stdin.write('transform with ' + config[0] + '\n')
-    if config[1]:
-      run_pair.stdin.write('transform config ' + config[1] + '\n')
+    commands = tests[test]
+    for command in commands:
+      run_pair.stdin.write(command + '\n')
     run_pair.stdin.close()
     run_pair.wait(30)
 
