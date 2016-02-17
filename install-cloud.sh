@@ -23,12 +23,16 @@ then
 fi
 
 do_install() {
-  TMP_DIR=`mktemp -d`
-  git clone --depth 1 https://github.com/uProxy/uproxy-docker.git $TMP_DIR
-  cd $TMP_DIR/testing/run-scripts
+    cd /root
+    git clone --depth 1 https://github.com/uProxy/uproxy-docker.git
+    cd uproxy-docker/testing/run-scripts
 
-   # TODO: pass arguments, e.g. banner
-  ./run_cloud.sh firefox-stable
+    # TODO: pass arguments, e.g. banner
+    ./run_cloud.sh firefox-stable
+
+    # Set up cron to auto-update every Sunday at midnight
+    # TODO - try to figure out timezone to pick consistent time
+    echo "0 0 * * 0 root /root/uproxy-docker/testing/run-scripts/run_cloud.sh -u firefox-stable" >> /etc/crontab
 }
 
 # Wrapped in a function for some protection against half-downloads.
