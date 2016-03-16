@@ -72,31 +72,77 @@ function run_docker () {
 }
 
 # start the giver.
-# this is the server under test: we'll keep this up and running.
+# this is the server under test.
 docker rm -f $CONTAINER_PREFIX-giver &> /dev/null || echo
 run_docker $CONTAINER_PREFIX-giver $1 -p :9000
 GIVER_COMMAND_PORT=`docker port $CONTAINER_PREFIX-giver 9000|cut -d':' -f2`
 
-echo -n "Waiting for giver to come up"
+echo -n "Waiting for giver to come up (port $GIVER_COMMAND_PORT)"
 while ! ((echo ping ; sleep 0.5) | nc -w 1 localhost $GIVER_COMMAND_PORT | grep ping) > /dev/null; do echo -n .; done
 echo
 
-# start a number of getters.
-# one per-run...we can do better.
+# start the getter.
+# this is just used to generate load.
+docker rm -f $CONTAINER_PREFIX-getter > /dev/null || echo
+run_docker $CONTAINER_PREFIX-getter $1 -p :9000 -p $PROXY_PORT:9999
+GETTER_COMMAND_PORT=`docker port $CONTAINER_PREFIX-getter 9000|cut -d':' -f2`
+
+echo -n "Waiting for getter $i to come up (port $GETTER_COMMAND_PORT)"
+while ! ((echo ping ; sleep 0.5) | nc -w 1 localhost $GETTER_COMMAND_PORT | grep ping) > /dev/null; do echo -n .; done
+echo
+
+GETTER_IP=`docker inspect --format '{{ .NetworkSettings.IPAddress }}' stress-getter`
+
 for i in `seq 1 $2`
 do
-  docker rm -f $CONTAINER_PREFIX-getter > /dev/null || echo
-  run_docker $CONTAINER_PREFIX-getter $1 -p :9000 -p $PROXY_PORT:9999
-  GETTER_COMMAND_PORT=`docker port $CONTAINER_PREFIX-getter 9000|cut -d':' -f2`
+  echo "$i..."
 
-  echo -n "Waiting for getter $i to come up"
-  while ! ((echo ping ; sleep 0.5) | nc -w 1 localhost $GETTER_COMMAND_PORT | grep ping) > /dev/null; do echo -n .; done
-  echo
+  TMP_DIR=`mktemp -d`
 
-  echo "Connecting pair..."
-  sleep 2 # make sure nc is shutdown
-  ./connect-pair.py localhost $GETTER_COMMAND_PORT localhost $GIVER_COMMAND_PORT
+  # the exec stuff helps make the pipes non-blocking
 
-  echo "SOCKS proxy should be available, sample command:"
-  echo "  curl -x socks5h://localhost:$PROXY_PORT www.example.com"
+  mkfifo $TMP_DIR/togiver
+  exec 5<>$TMP_DIR/togiver
+  mkfifo $TMP_DIR/fromgiver
+  exec 6<>$TMP_DIR/fromgiver
+  (nc -q 0 -w 5 localhost $GIVER_COMMAND_PORT <&5 >&6; echo "giver disconnected") &
+  GIVER_NC_PID=$!
+
+  mkfifo $TMP_DIR/togetter
+  exec 7<>$TMP_DIR/togetter
+  mkfifo $TMP_DIR/fromgetter
+  exec 8<>$TMP_DIR/fromgetter
+  (nc -q 0 -w 5 localhost $GETTER_COMMAND_PORT <&7 >&8; echo "getter disconnected") &
+  GETTER_NC_PID=$!
+
+  # -r disables newline escaping
+  (while true; do if read -r a <&6; then echo "from giver: $a"; echo $a >&7; fi; done) &
+
+  echo give >&5
+  echo get >&7
+
+  while true
+  do
+    if read -r b <&8
+    then
+      echo "from getter: $b"
+      if echo $b|grep ^connected
+      then
+        port=`echo $b|cut -d' ' -f2`
+        echo "connected on port $port!"
+        curl -x socks5h://$GETTER_IP:$port www.example.com >/dev/null
+
+        # TODO: is this all the cleanup we need to do?
+        echo stop >&5
+        echo stop >&7
+
+        kill $GETTER_NC_PID
+        kill $GIVER_NC_PID
+
+        break
+      else
+        echo $b >&5
+      fi
+    fi
+  done
 done
