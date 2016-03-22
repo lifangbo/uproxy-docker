@@ -85,58 +85,8 @@ echo -n "Waiting for getter to come up (port $GETTER_PORT)"
 while ! ((echo ping ; sleep 0.5) | nc -w 1 localhost $GETTER_PORT | grep ping) > /dev/null; do echo -n .; done
 echo
 
-
 for i in `seq 1 $4`
 do
   echo "$i..."
-
-  TMP_DIR=`mktemp -d`
-
-  # the exec stuff helps make the pipes non-blocking
-
-  mkfifo $TMP_DIR/togiver
-  exec 5<>$TMP_DIR/togiver
-  mkfifo $TMP_DIR/fromgiver
-  exec 6<>$TMP_DIR/fromgiver
-  (nc -q 0 -w 5 $GIVER_IP $GIVER_PORT <&5 >&6; echo "giver disconnected") &
-  GIVER_NC_PID=$!
-
-  mkfifo $TMP_DIR/togetter
-  exec 7<>$TMP_DIR/togetter
-  mkfifo $TMP_DIR/fromgetter
-  exec 8<>$TMP_DIR/fromgetter
-  (nc -q 0 -w 5 localhost $GETTER_PORT <&7 >&8; echo "getter disconnected") &
-  GETTER_NC_PID=$!
-
-  # -r disables newline escaping
-  (while true; do if read -r a <&6; then echo "from giver: $a"; echo $a >&7; fi; done) &
-
-  echo give >&5
-  echo get >&7
-
-  while true
-  do
-    if read -r b <&8
-    then
-      echo "from getter: $b"
-      if echo $b|grep ^connected
-      then
-        SOCKS_PORT=`echo $b|cut -d' ' -f2`
-        echo "connected on port $SOCKS_PORT!"
-        echo curl -x socks5h://$GETTER_IP:$SOCKS_PORT www.example.com >/dev/null
-        curl -x socks5h://$GETTER_IP:$SOCKS_PORT www.example.com >/dev/null
-
-        # TODO: is this all the cleanup we need to do?
-        echo stop >&5
-        echo stop >&7
-
-        kill $GETTER_NC_PID
-        kill $GIVER_NC_PID
-
-        break
-      else
-        echo $b >&5
-      fi
-    fi
-  done
+  ./connect-pair.sh $GETTER_IP 9000 $GIVER_IP $GIVER_PORT
 done
