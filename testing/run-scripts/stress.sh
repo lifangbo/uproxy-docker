@@ -16,7 +16,7 @@ function usage () {
   exit 1
 }
 
-while getopts gb:p:kvr:m:l:s:u:h? opt; do
+while getopts p:h? opt; do
   case $opt in
     p) PREBUILT="$OPTARG" ;;
     *) usage ;;
