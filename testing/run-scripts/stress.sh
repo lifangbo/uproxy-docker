@@ -2,15 +2,13 @@
 
 # Tests if a Zork instance can handle N number of connections.
 
-set -e
-
 source "${BASH_SOURCE%/*}/utils.sh" || (echo "cannot find utils.sh" && exit 1)
 
 CONTAINER_PREFIX=stress
 PREBUILT=
 
 function usage () {
-  echo "$0 [-p] [-h] browserspec num_connections"
+  echo "$0 [-p] [-h] browser-version giver_ip giver_port num_connections"
   echo "  -p: use a pre-built uproxy-lib (conflicts with -g)"
   echo "  -h, -?: this help message."
   exit 1
@@ -24,7 +22,7 @@ while getopts p:h? opt; do
 done
 shift $((OPTIND-1))
 
-if [ $# -lt 2 ]
+if [ $# -lt 4 ]
 then
   usage
 fi
@@ -73,26 +71,22 @@ function run_docker () {
 
 # ping giver.
 # this is the server under test.
-GIVER_ADDRESS=192.81.216.14
-GIVER_PORT=9000
-
-echo -n "Waiting for giver at $GIVER_ADDRESS:$GIVER_PORT"
-while ! ((echo ping ; sleep 0.5) | nc -w 1 $GIVER_ADDRESS $GIVER_PORT | grep ping) > /dev/null; do echo -n .; done
-echo
+GIVER_IP=$2
+GIVER_PORT=$3
 
 # start the getter.
 # this is just used to generate load.
 docker rm -f $CONTAINER_PREFIX-getter > /dev/null || echo
 run_docker $CONTAINER_PREFIX-getter $1 -p :9000 -p $PROXY_PORT:9999
-GETTER_COMMAND_PORT=`docker port $CONTAINER_PREFIX-getter 9000|cut -d':' -f2`
+GETTER_IP=`docker inspect --format '{{ .NetworkSettings.IPAddress }}' stress-getter`
+GETTER_PORT=`docker port $CONTAINER_PREFIX-getter 9000|cut -d':' -f2`
 
-echo -n "Waiting for getter $i to come up (port $GETTER_COMMAND_PORT)"
-while ! ((echo ping ; sleep 0.5) | nc -w 1 localhost $GETTER_COMMAND_PORT | grep ping) > /dev/null; do echo -n .; done
+echo -n "Waiting for getter to come up (port $GETTER_PORT)"
+while ! ((echo ping ; sleep 0.5) | nc -w 1 localhost $GETTER_PORT | grep ping) > /dev/null; do echo -n .; done
 echo
 
-GETTER_IP=`docker inspect --format '{{ .NetworkSettings.IPAddress }}' stress-getter`
 
-for i in `seq 1 $2`
+for i in `seq 1 $4`
 do
   echo "$i..."
 
@@ -104,14 +98,14 @@ do
   exec 5<>$TMP_DIR/togiver
   mkfifo $TMP_DIR/fromgiver
   exec 6<>$TMP_DIR/fromgiver
-  (nc -q 0 -w 5 $GIVER_ADDRESS $GIVER_PORT <&5 >&6; echo "giver disconnected") &
+  (nc -q 0 -w 5 $GIVER_IP $GIVER_PORT <&5 >&6; echo "giver disconnected") &
   GIVER_NC_PID=$!
 
   mkfifo $TMP_DIR/togetter
   exec 7<>$TMP_DIR/togetter
   mkfifo $TMP_DIR/fromgetter
   exec 8<>$TMP_DIR/fromgetter
-  (nc -q 0 -w 5 localhost $GETTER_COMMAND_PORT <&7 >&8; echo "getter disconnected") &
+  (nc -q 0 -w 5 localhost $GETTER_PORT <&7 >&8; echo "getter disconnected") &
   GETTER_NC_PID=$!
 
   # -r disables newline escaping
@@ -127,9 +121,10 @@ do
       echo "from getter: $b"
       if echo $b|grep ^connected
       then
-        port=`echo $b|cut -d' ' -f2`
-        echo "connected on port $port!"
-        curl -x socks5h://$GETTER_IP:$port www.example.com >/dev/null
+        SOCKS_PORT=`echo $b|cut -d' ' -f2`
+        echo "connected on port $SOCKS_PORT!"
+        echo curl -x socks5h://$GETTER_IP:$SOCKS_PORT www.example.com >/dev/null
+        curl -x socks5h://$GETTER_IP:$SOCKS_PORT www.example.com >/dev/null
 
         # TODO: is this all the cleanup we need to do?
         echo stop >&5
