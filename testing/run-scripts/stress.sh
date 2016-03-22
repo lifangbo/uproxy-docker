@@ -71,14 +71,13 @@ function run_docker () {
   docker run $HOSTARGS $@ --name $NAME -d $IMAGENAME /test/bin/load-zork.sh $RUNARGS
 }
 
-# start the giver.
+# ping giver.
 # this is the server under test.
-docker rm -f $CONTAINER_PREFIX-giver &> /dev/null || echo
-run_docker $CONTAINER_PREFIX-giver $1 -p :9000
-GIVER_COMMAND_PORT=`docker port $CONTAINER_PREFIX-giver 9000|cut -d':' -f2`
+GIVER_ADDRESS=192.81.216.14
+GIVER_PORT=9000
 
-echo -n "Waiting for giver to come up (port $GIVER_COMMAND_PORT)"
-while ! ((echo ping ; sleep 0.5) | nc -w 1 localhost $GIVER_COMMAND_PORT | grep ping) > /dev/null; do echo -n .; done
+echo -n "Waiting for giver at $GIVER_ADDRESS:$GIVER_PORT"
+while ! ((echo ping ; sleep 0.5) | nc -w 1 $GIVER_ADDRESS $GIVER_PORT | grep ping) > /dev/null; do echo -n .; done
 echo
 
 # start the getter.
@@ -105,7 +104,7 @@ do
   exec 5<>$TMP_DIR/togiver
   mkfifo $TMP_DIR/fromgiver
   exec 6<>$TMP_DIR/fromgiver
-  (nc -q 0 -w 5 localhost $GIVER_COMMAND_PORT <&5 >&6; echo "giver disconnected") &
+  (nc -q 0 -w 5 $GIVER_ADDRESS $GIVER_PORT <&5 >&6; echo "giver disconnected") &
   GIVER_NC_PID=$!
 
   mkfifo $TMP_DIR/togetter
