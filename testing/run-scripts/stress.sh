@@ -8,7 +8,7 @@ CONTAINER_PREFIX=stress
 PREBUILT=
 
 function usage () {
-  echo "$0 [-p] [-h] browser-version giver_ip giver_port num_connections"
+  echo "$0 [-p] [-h] browser-version giver_ip giver_port num_attempts parallelism"
   echo "  -p: use a pre-built uproxy-lib (conflicts with -g)"
   echo "  -h, -?: this help message."
   exit 1
@@ -22,7 +22,7 @@ while getopts p:h? opt; do
 done
 shift $((OPTIND-1))
 
-if [ $# -lt 4 ]
+if [ $# -lt 5 ]
 then
   usage
 fi
@@ -85,8 +85,4 @@ echo -n "Waiting for getter to come up (port $GETTER_PORT)"
 while ! ((echo ping ; sleep 0.5) | nc -w 1 localhost $GETTER_PORT | grep ping) > /dev/null; do echo -n .; done
 echo
 
-for i in `seq 1 $4`
-do
-  echo "$i..."
-  ./connect-pair.sh $GETTER_IP 9000 $GIVER_IP $GIVER_PORT
-done
+seq $4 | parallel -j $5 --linebuffer -k 'echo -n "{}: " && ./connect-pair.sh '$GETTER_IP' 9000 '$GIVER_IP' '$GIVER_PORT'; echo'
